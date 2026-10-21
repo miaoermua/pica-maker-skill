@@ -1,0 +1,28 @@
+pkgname = NAME
+appname = NAME
+pkgver = 0.0.0
+pkgrel = 1
+os = openwrt
+platform = all
+arch = all
+pica = 0.3.0
+pkgdesc = WHAT IT DOES, in one line.
+url = https://github.com/OWNER/REPO
+luci_url = https://github.com/OWNER/luci/tree/master/applications/NAME
+branch = master
+protocol = luci
+luci_desc = LuCI support for NAME
+license = Apache-2.0
+visibility = open
+packager = pica-pack
+type = luci
+
+# js2 for a view under htdocs/luci-static/resources/, lua1 for one under
+# luasrc/. This follows the package, not the backend.
+luci = js2
+targets = opkg
+
+# Every container this package's own control declares. Keep them separate files
+# rather than a merged tree so the package manager still records each one.
+app = NAME
+base = luci-base

@@ -1,0 +1,33 @@
+{
+  "schema": "pica-ci-job-v1",
+  "mgr": "apk",
+  "id": "NAME",
+  "enabled": true,
+  "manifest": "src/apk/NAME/manifest",
+  "source": {
+    "provider": "http_template",
+    "url_templates": [
+      "https://downloads.immortalwrt.org/releases/VER/packages/{arch}/luci/luci-app-name-VERSION.apk",
+      "https://downloads.immortalwrt.org/releases/VER/packages/{arch}/packages/daemon-VERSION.apk"
+    ]
+  },
+  "versioning": {
+    "pkgver": { "from": "manifest", "fallback": "0.0.0" },
+    "pkgrel": { "from": "manifest", "fallback": 1 }
+  },
+  "build": {
+    "matrix": [
+      { "platform": "amd64", "arch": "x86_64" },
+      { "platform": "arm64", "arch": "aarch64_generic" },
+      { "platform": "arm64", "arch": "aarch64_cortex-a53" },
+      { "platform": "arm64", "arch": "aarch64_cortex-a72" },
+      { "platform": "mipsel", "arch": "mipsel_24kc" }
+    ],
+    "include_dirs": ["scripts", "root", "pkgs"],
+    "pack": { "tool": "pica-pack", "format": "pkg.tar.gz" }
+  },
+  "publish": {
+    "registry_db": "r/apk/NAME/db.json",
+    "keep_release_history": 1
+  }
+}

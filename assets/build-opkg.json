@@ -1,0 +1,37 @@
+{
+  "schema": "pica-ci-job-v1",
+  "mgr": "opkg",
+  "id": "NAME",
+  "enabled": true,
+  "manifest": "src/opkg/NAME/manifest",
+  "source": {
+    "provider": "github",
+    "repo": "OWNER/REPO",
+    "release": {
+      "tag": { "mode": "regex", "regex": "^v?[0-9]+(?:\\.[0-9]+)*$" },
+      "allow_prerelease": false,
+      "assets": [
+        {
+          "name": "app",
+          "role": "app",
+          "regex": "^name_[0-9].*_all\\.ipk$",
+          "required": true,
+          "target": { "platform": "all", "arch": "all" }
+        }
+      ]
+    }
+  },
+  "versioning": {
+    "pkgver": { "from": "manifest", "fallback": "0.0.0" },
+    "pkgrel": { "from": "manifest", "fallback": 1 }
+  },
+  "build": {
+    "matrix": [{ "platform": "all", "arch": "all" }],
+    "include_dirs": ["scripts", "root", "pkgs"],
+    "pack": { "tool": "pica-pack", "format": "pkg.tar.gz" }
+  },
+  "publish": {
+    "registry_db": "r/opkg/NAME/db.json",
+    "keep_release_history": 1
+  }
+}
