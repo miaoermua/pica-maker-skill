@@ -1,6 +1,6 @@
 ---
 name: picapkgmaker
-description: Adds a package to a pica-pkg-repo source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers locating a source's dependencies, reading its licence and OpenWrt recipe, choosing the backend and provider, mapping architectures, deciding which containers to bundle, and the repository validator's hard rules.
+description: Adds a package to a pica-pkg-repo source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers where the pica tools and the package source live on disk, how to search a feed or upstream recipe for a dependency, locating a source's dependencies and licence, choosing the backend and provider, mapping architectures, deciding which containers to bundle, the artifact naming rules, and the repository validator's hard rules.
 agent_created: true
 ---
 
@@ -8,6 +8,37 @@ agent_created: true
 
 Produce a package the validator accepts and that builds from a real upstream
 source — verified, not assumed.
+
+## Where things live
+
+Three repositories, each with its own layout. Reach for these before guessing
+a path.
+
+**`pica` — the tools themselves.** Builds and installs packages.
+
+```
+crates/pica-pkg-core/src/repo.rs      package_filename(), the index schema
+crates/pica-pkg-core/src/manifest.rs  what a manifest may declare
+crates/pica-pkg-pack/src/build.rs     pica-pack's build, output layout
+crates/pica-pkg-cli/src/commands/install/precheck.rs   dependency check
+target/release/pica                   the installer
+target/release/pica-pack              the packer
+```
+
+**`pica-pkg-repo` — the source this skill adds packages to.**
+
+```
+ci/<mgr>/<id>/build.json      the job
+src/<mgr>/<id>/manifest       the package
+.github/scripts/validate_repo.py   run before reporting done
+.github/scripts/fetch_assets.py    the downloader, where providers are implemented
+r/<mgr>/<id>/db.json          where the registry points
+```
+
+`<mgr>` is one of `opkg`, `apk`, `pica` and must match the job's own `mgr`.
+The directory name and the `id` field must agree.
+
+**`pica-maker-skill` — this file.** `scripts/`, `references/`, `assets/`.
 
 ## Establish the facts before writing anything
 
@@ -26,6 +57,46 @@ curl -sI -o /dev/null -w '%{http_code}\n' "$URL"
 A download that comes back empty or a few bytes usually means the filename
 contains `~`, which curl expands as a glob even under `-g`. Fetch it through
 Python with `urllib.parse.quote` on the name.
+
+## How to search
+
+Three questions come up repeatedly. Each has a tool rather than a guess.
+
+**What does the packer accept?** Read the source, not the schema — the
+validator's messages are the authoritative list and they name what was wrong:
+
+```bash
+grep -n 'bad(' .github/scripts/validate_repo.py
+```
+
+**What is actually in a feed?** `scripts/list_feed.py`. `where` finds which
+subdirectory holds a package, `matrix` says whether its filenames agree across
+architectures, `arches` lists what exists.
+
+```bash
+python3 scripts/list_feed.py --match ip-full where
+python3 scripts/list_feed.py --match luci-i18n-qbittorrent-zh-cn matrix
+```
+
+**What does upstream require?** The recipe, not the package name:
+
+```bash
+curl -sL "https://raw.githubusercontent.com/OWNER/luci/master/applications/PKG/Makefile"
+tar -xzOf pkg.ipk control.tar.gz | tar -xzOf - ./control | grep -E '^(Package|Depends|Architecture)'
+```
+
+`LUCI_DEPENDS` is the authoritative dependency list. Where the two disagree,
+the built package's control wins.
+
+**Is a URL still there?** HEAD every one before building:
+
+```bash
+python3 scripts/check_urls.py --changed
+```
+
+A mirror's directory index may return a page too short to hold entries — some
+serve a JavaScript shell to a plain fetch. List against the upstream host and
+download from the mirror, not the other way round.
 
 ## Find the dependencies, the recipe, and the licence
 
@@ -134,6 +205,12 @@ manager installs. They differ when upstream already publishes a package of the
 same name — suffix with `-bin` for a bare binary, and with `@fork` when two
 forks install the same upstream name.
 
+`appname` is the command on the device and stays the upstream name; renaming
+`pkgname` never moves it.
+
+The artifact filename is assembled from these plus the matrix, and carries its
+own rules. `references/naming.md` has the layout and real examples.
+
 ## Rules the validator enforces
 
 - `ci/<mgr>/` must equal the job's `mgr`, and the manifest path must be
@@ -181,6 +258,18 @@ actually holds — which architectures exist, which subdirectory a package sits
 in, and whether its filenames agree across architectures. Run `where` before
 guessing a subdirectory and `matrix` before deciding how many URL templates a
 job needs.
+
+`references/naming.md` — the artifact filename, the layers beneath it, and the
+version fields.
+
+`references/habits.md` — what keeps a package right the first time. Each entry
+there is a mistake that built green and was wrong anyway; read it before
+departing from a pattern this skill describes.
+
+`references/providers.md` — each provider's fields, the arch_map rules, the
+OpenWrt directory layout per era, the translation-container rule, and the
+dependency-bundling decision. Read it when a source's layout matches none of
+the shapes above.
 
 `references/providers.md` documents each provider's fields, the arch_map rules,
 the OpenWrt directory layout per era, the translation-container rule, and the
