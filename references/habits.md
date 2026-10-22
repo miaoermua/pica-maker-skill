@@ -93,6 +93,84 @@ device. Renaming a package is cheap for the index and invisible to the device,
 but a device that installed the old name will not see the new one as an upgrade.
 Note it when renaming.
 
+## One artifact, one index entry
+
+An index keyed by package name holds one row per package, while a job builds one
+artifact per matrix entry. A five-architecture package therefore once had five
+files and one entry: four of them were named by nothing, and the survivor was
+whichever architecture the matrix happened to end on. The build stayed green;
+`verify_artifacts` reported it one line at a time as
+`built artifact has no index entry`.
+
+The merge keys on `(pkgmgr, pkgname, platform, arch)` now, which is the fix. If
+that message appears again it means an artifact was dropped on the way into the
+index, not that the key is too narrow — read the merge before widening anything.
+
+The same rule explains why one package may legitimately carry several versions:
+`bind-dig` was `9.20.26` on four architectures and `9.20.29` on
+`aarch64_cortex-a53`, `nano` was `9.1` against `9.2`. One entry per artifact,
+not per name — which is exactly what a second URL template per architecture
+buys.
+
+## A package can ship no container at all
+
+`cattools` declares `targets = opkg, pica`, hands its runtime to opkg
+(`base@opkg = bash`, `curl`, `unzip`, `jq`) and installs itself through
+`scripts/install`. There is deliberately no `.ipk` inside it.
+
+A check that demanded `pkgs/` from every native backend called that package
+empty and blocked a release one step before publishing 148 of them. It now asks
+the packer's question instead — containers, `root/`, or `scripts/`, at least one
+— so a script-installed package passes on its own merits. What to carry into a
+new package is the part that was always true: no container is not an empty
+package, and a native backend needs no `.ipk` when the scripts install it.
+
+## The suffix belongs to the packer version
+
+Every backend has a suffix since 0.3.34 — `-opkg` included — and 0.3.34 is what
+CI builds. Older packers wrote opkg with none, so one package has two possible
+names depending on which `pica-pack` handled it:
+`cattools-1.1-2-all.pkg.tar.gz` from a 0.3.0 build,
+`cattools-1.1-2-all-opkg.pkg.tar.gz` from 0.3.34.
+
+Take the published name from the build that produced the artifact, never from a
+local `pica-pack` of unknown vintage. One packer upgrade renames every opkg
+artifact in the source at once.
+
+## Raise the client floor with the format you rely on
+
+A source publishing one entry per architecture is only correct for clients that
+filter by architecture. 0.3.33 did not — it compared versions and took the first
+match — so a package with five entries could resolve to `mipsel_24kc` on an
+`x86_64` device and only fail at the install-time architecture check.
+
+Every manifest now carries `pica = 0.3.34`, the floor that keeps such a client
+out: `pica too old: pkg requires >= 0.3.34, cli is 0.3.33`. A new package stays
+at that floor. Lowering it reopens the misinstall the multi-entry index exists
+to avoid, and the failure it produces is an architecture error halfway through
+an install rather than a refusal up front.
+
+## Do not run the CLI inside the source tree
+
+`pica` creates its state directory before it does anything else. The default is
+`/var/lib/pica`, which needs root, so pointing `PICA_STATE_DIR` at something
+relative is tempting — and then the source tree grows
+`state/inuse.<pid>.lock`, whose entire content is the PID. `LockGuard::drop`
+removes that directory, and a killed process never runs it; a leftover lock
+means an interrupted run and is safe to delete.
+
+`state` belongs in `.gitignore`, but a lock file that was already committed
+stays tracked — ignore rules do nothing to a path git already has. `git rm
+--cached` it.
+
+## A view is not a second list
+
+`r/repo.json` is the index. `r/index.json` and `r/<mgr>/index.json` are written
+from it in the same run, and `validate_index_layout.py` fails when one of them
+stops agreeing with it. Editing one by hand creates two descriptions of the same
+artifacts; when the check fires, regenerate rather than editing the other file
+to match — the second edit only moves the disagreement.
+
 ## Write the reason into the commit, not the change
 
 The change is in the diff. What the diff cannot say is why `mipsel` maps to

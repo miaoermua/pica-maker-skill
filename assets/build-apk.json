@@ -27,7 +27,6 @@
     "pack": { "tool": "pica-pack", "format": "pkg.tar.gz" }
   },
   "publish": {
-    "registry_db": "r/apk/NAME/db.json",
     "keep_release_history": 1
   }
 }

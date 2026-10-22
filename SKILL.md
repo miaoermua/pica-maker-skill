@@ -1,6 +1,6 @@
 ---
 name: picapkgmaker
-description: Adds a package to a pica-pkg-repo source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers where the pica tools and the package source live on disk, how to search a feed or upstream recipe for a dependency, locating a source's dependencies and licence, choosing the backend and provider, mapping architectures, deciding which containers to bundle, the artifact naming rules, and the repository validator's hard rules.
+description: Adds a package to a pica-pkg-repo source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers where the pica tools and the package source live on disk, how to search a feed or upstream recipe for a dependency, locating a source's dependencies and licence, choosing the backend and provider, mapping architectures, deciding which containers to bundle, the artifact naming rules, the published index layout, and the repository validator's hard rules.
 agent_created: true
 ---
 
@@ -32,13 +32,33 @@ ci/<mgr>/<id>/build.json      the job
 src/<mgr>/<id>/manifest       the package
 .github/scripts/validate_repo.py   run before reporting done
 .github/scripts/fetch_assets.py    the downloader, where providers are implemented
-r/<mgr>/<id>/db.json          where the registry points
+r/index.json                  which backends this source serves, and where
+r/repo.json                   schema 2 — what a client fetches today
+r/<mgr>/index.json            that backend's view, written from repo.json
+.github/scripts/gen_repo_index.py  writes all of them; never hand-edit r/
 ```
 
 `<mgr>` is one of `opkg`, `apk`, `pica` and must match the job's own `mgr`.
 The directory name and the `id` field must agree.
 
 **`pica-maker-skill` — this file.** `scripts/`, `references/`, `assets/`.
+
+## When the answer is in pica itself
+
+This file covers the source. How a client resolves what the source publishes —
+the index schema, the entry descriptor, sync and install order, the state
+directory — is pica's own business, and inferring it from Rust signatures is how
+a package ends up shaped for a client that no longer reads it that way.
+
+Read the project's docs instead of guessing:
+
+https://github.com/miaoermua/pica/tree/main/docs
+
+`standard.md` holds the archive and index contract — including the `schema 1`
+entry descriptor with `managers[].path`, which is what the `r/` layout above
+serves. `developer.md` covers the build and install pipeline, `user.md` what a
+user sees. They are drafts and can lag: where a document and `crates/` disagree,
+the code is what ships.
 
 ## Establish the facts before writing anything
 
@@ -153,8 +173,10 @@ not by which backend is in use — it is a property of the package:
 package must be self-sufficient.
 
 For two backends, keep the job's `mgr` as the input side and set `targets` to
-both; the workflow merges `build_output/*/repo.json` itself, so
-`publish.registry_db` does not drive anything.
+both; the workflow merges `build_output/*/repo.json` itself. `publish` is
+optional and inert: older jobs point `registry_db` at
+`r/<mgr>/<id>/db.json`, a tree that no longer exists, and nothing writes or
+reads it. The templates omit it rather than repeat a dead path.
 
 ## The two provider shapes
 
@@ -268,10 +290,5 @@ departing from a pattern this skill describes.
 
 `references/providers.md` — each provider's fields, the arch_map rules, the
 OpenWrt directory layout per era, the translation-container rule, and the
-dependency-bundling decision. Read it when a source's layout matches none of
-the shapes above.
-
-`references/providers.md` documents each provider's fields, the arch_map rules,
-the OpenWrt directory layout per era, the translation-container rule, and the
 dependency-bundling decision. Read it when a source's layout matches none of
 the shapes above.

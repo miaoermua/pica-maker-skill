@@ -18,7 +18,7 @@ concatenated in order; nothing else is added.
 | `pkgrel` | manifest | defaults to `1` if omitted |
 | `platform` | job matrix | **omitted entirely when it is `all`** |
 | `arch` | job matrix | |
-| `-<suffix>` | backend | `apk` → `-apk`, `pica` → `-pica`, **opkg → nothing** |
+| `-<suffix>` | backend | `opkg` → `-opkg`, `apk` → `-apk`, `pica` → `-pica`; every backend has one |
 | `.pkg.tar.gz` | constant | `PKG_EXTENSION` |
 
 Real output from this source:
@@ -27,8 +27,16 @@ Real output from this source:
 qbittorrent-5.2.3-2-amd64-x86_64-apk.pkg.tar.gz
 tailscale-bin-1.104.1-1-amd64-x86_64-pica.pkg.tar.gz
 uugamebooster@xiaodoudou-2.0-1-all-apk.pkg.tar.gz
-deptest-1.0-1-all.pkg.tar.gz                 # opkg, no suffix
+cattools-1.1-2-all-opkg.pkg.tar.gz
 ```
+
+The opkg suffix is recent. `filename_suffix()` returns `None` for an unknown
+backend because naming it the way opkg used to be named would let two backends
+write the same file; before 0.3.34 that same rule let opkg write no suffix at
+all, so `cattools-1.1-2-all.pkg.tar.gz` was correct then and is wrong now.
+Take the name from the build that produced the artifact, never from a local
+`pica-pack` binary of unknown vintage — one packer upgrade renames every opkg
+artifact in the source at once.
 
 When `platform` is `all` the stem drops that segment and only `arch` remains,
 so a package that is `all` for both shows just `-all`. That is not a separate
