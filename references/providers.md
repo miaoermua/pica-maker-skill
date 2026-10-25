@@ -109,6 +109,12 @@ An architecture that lacks one container is not a matrix entry. Where an
 upstream recipe says `@(aarch64||arm||x86_64)`, the missing ones are deliberate
 — Docker is not built for mips — and padding the matrix produces 404s.
 
+One shape is limited to a single architecture: the `tarball` provider stages
+every matrix entry into the same `root/`, and a pica artifact deploys that tree
+as-is, so the fetcher refuses a `tarball` job with more than one entry
+(`per-arch archives cannot be represented`). Such a package needs one job per
+architecture — `cloudflared-bin` is one entry, `amd64/x86_64`.
+
 ## Finding what a feed holds
 
 Never guess a subdirectory or a version. `scripts/list_feed.py` reads the feed:

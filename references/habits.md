@@ -61,11 +61,47 @@ and has no ipk, while `24.10.0` still carries both.
 | The dependency is… | Do |
 |---|---|
 | Called at run time, and not already on every install | Bundle it as a separate container |
-| Already its own package here | Declare it — bundling installs it twice |
+| A system package the device's own feed already carries | Declare it — bundling installs it twice |
 | A kernel module or toolchain runtime | Declare nothing. `kmod-*` is built against a kernel version and travels with the image |
 
 A missing third of that table is what makes a package look portable while
 shipping a kernel module that is wrong on every other firmware.
+
+## A package in this source is not a dependency
+
+A dependency name is resolved against three things only: the backend's installed
+database, the backend's feeds, and the artifact's own `pkgs/`. A package living
+in this source is in none of them — pica keeps its own ledger and never reads
+another artifact's manifest — so declaring one makes the precheck refuse the
+install as `missing`.
+
+`pica` 0.4.1 names that case: `pkg-x exist in the Pica sources, but pica does
+not resolve Pica packages as dependencies`. Older clients only say `missing`,
+which reads like a typo in the manifest.
+
+To ship what another package provides, bundle its container in
+`pkgs/<backend>/`, or write the dependency as the system package the device's
+feed carries. There is no fourth option and no syntax that makes one pica
+package depend on another.
+
+## Python is a runtime the feed owns
+
+`python3-light` is not a Python. The interpreter is `python3-base` plus
+`libpython3-<ver>`; the standard library is split into `python3-<module>`
+packages, and `ssl` is `python3-openssl`. `python3-light` carries `ssl.pyc`
+without `_ssl`, so `import ssl` fails until that module package is installed —
+and a missing piece only surfaces at run time, never in the build.
+
+On musl, PyPI's `manylinux` wheels cannot load and `musllinux` wheels barely
+exist; only `py3-none-any` is portable. C extensions have to come from the
+feed's own per-arch build, declared as a dependency.
+
+So a Python application is wrappable when it is pure Python and every import is
+declared (`base = python3-light`, `base = python3-urllib`, …). `requests` is not
+a good candidate: on 24.10.8/x86_64 a single `base = python3-requests` resolves
+to 34 packages and about 24 MiB installed, because `urllib3` pulls the whole
+stdlib metapackage. `requests`, `pip` and `python3` belong to the feed — wrapped,
+they duplicate the distribution and fight it for file ownership.
 
 ## A green build proves less than it looks
 
@@ -125,6 +161,10 @@ the packer's question instead — containers, `root/`, or `scripts/`, at least o
 new package is the part that was always true: no container is not an empty
 package, and a native backend needs no `.ipk` when the scripts install it.
 
+`root/` is not a pica-backend feature either: pica lays that tree down for
+every backend, so an `opkg` package can ship files no container owns while still
+handing its dependencies to opkg.
+
 ## The suffix belongs to the packer version
 
 Every backend has a suffix since 0.3.34 — `-opkg` included — and 0.3.34 is what
@@ -149,6 +189,15 @@ out: `pica too old: pkg requires >= 0.3.34, cli is 0.3.33`. A new package stays
 at that floor. Lowering it reopens the misinstall the multi-entry index exists
 to avoid, and the failure it produces is an architecture error halfway through
 an install rather than a refusal up front.
+
+A package that updates pica itself is the exception to "stay at the floor". Its
+`pica` value gates the *installed* client, so setting it to the version the
+package contains stops every older client from starting the upgrade. Set it to
+the oldest version that can install the package.
+
+That package is reached by `-Su` only when it came from the source: `-U` records
+`source = local` and `-U <url>` records `url`, and the upgrade scan skips both.
+The first copy is installed with `pica -S pica`.
 
 ## Do not run the CLI inside the source tree
 
