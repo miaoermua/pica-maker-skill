@@ -98,10 +98,16 @@ feed's own per-arch build, declared as a dependency.
 
 So a Python application is wrappable when it is pure Python and every import is
 declared (`base = python3-light`, `base = python3-urllib`, …). `requests` is not
-a good candidate: on 24.10.8/x86_64 a single `base = python3-requests` resolves
-to 34 packages and about 24 MiB installed, because `urllib3` pulls the whole
-stdlib metapackage. `requests`, `pip` and `python3` belong to the feed — wrapped,
-they duplicate the distribution and fight it for file ownership.
+a good candidate for self-packing: on 24.10.8/x86_64 a single
+`base = python3-requests` resolves to 34 packages and about 24 MiB installed,
+because `urllib3` pulls the whole stdlib metapackage.
+
+Wrapping the feed's own container is a different thing and is fine. That is what
+`node` does, and `python`, `python3-pip` and `python3-requests` follow it in both
+sources: the native package stays the distributor's, installed by the backend
+that owns it, so nothing is duplicated and no file changes hands. Self-packing
+`requests`, `pip` or `python3` from PyPI is the shape that fights the
+distribution for ownership; a feed wrapper is not.
 
 ## A green build proves less than it looks
 
