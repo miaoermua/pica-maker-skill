@@ -79,6 +79,11 @@ directory produces a 404 that looks like a missing package.
 | 24.10 (ipk) | `packages/<arch>/packages/`, `packages/<arch>/luci/` |
 | 25.12+ (apk) | `packages/<arch>/{base,packages,luci,routing,telephony}/` |
 
+Jobs that read the official distribution share one point release per backend —
+24.10.8 for opkg, 25.12.0 for apk — and a new one joins that set rather than
+picking its own. Two point releases are two different files, and the index keys
+on the artifact, so the same package can end up listed twice at two versions.
+
 List a directory rather than assuming:
 
 ```bash
@@ -168,19 +173,25 @@ difference being the signature timestamp.
 
 `{lang}` in the manifest key is the convention; the URL names a concrete
 language. Ship only the languages asked for — the repository's other translated
-packages each carry one.
+packages each carry one, and this source publishes simplified Chinese only.
+`zh-tw` is not carried, so a job listing it downloads a container nothing here
+wants.
 
 ## The dependency-bundling decision
 
 | The dependency is… | Do |
 |---|---|
 | Called by the interface at runtime, and not on every install | Bundle it, as a separate container |
-| Part of the base system every install already has (`luci-base`, a Lua runtime) | Declare it; bundling duplicates it per package |
-| A second interface that happens to be installed too (`luci-compat` for a Lua interface) | Bundle it when this package's control declares it |
+| Part of the base system every install already has (`luci-base`, a Lua runtime) | Declare it, optional: `base = luci-lua-runtime?`. Required, a name a feed carries moves the whole install to the feeds |
+| A second interface that happens to be installed too (`luci-compat` for a Lua interface) | Same — declare it optional rather than bundling it, unless the containers' own control already pulls it |
 
 `docker` and `dockerd` are a pair worth remembering: the first is the CLI
 applet, the second the daemon built for OpenWrt. An interface needs both, and a
 recipe asking for both means both.
+
+The Lua runtime is a dependency like any other, and `luci = lua1` declares none
+of it. What that field costs when it is mistaken for one is in
+`references/habits.md`.
 
 Containers stay separate files inside one package. A merged tree loses what the
 package manager recorded, so neither half can be updated on its own and a
@@ -209,10 +220,45 @@ fails. `<key>@<backend>` is invisible to the backend it does not name.
 
 ## Reading an apk 3.x (ADB) package
 
-`tar` cannot read these, so `pica-pack` reports `Install size: 0` and the
-validator cannot verify the package name. That is a known limit, not a
-malformed package. Read the metadata with `apk adbdump`, or take the package
-name from the feed's index.
+These are not tarballs, so `tar` reads nothing, and `pica-pack` prints
+`Install size: 0 bytes` for every apk artifact because it cannot read the
+container's file list — the index's `size` stays 0 for them. That is a missing
+feature rather than a malformed package, and no install decision reads it.
+
+The container opens with a four-byte `ADBd` signature and then **one raw deflate
+stream**. No zlib header appears anywhere in the file, which is why a plain
+`zlib.decompress` refuses it:
+
+```python
+import zlib
+raw = open('x.apk', 'rb').read()
+body = zlib.decompressobj(-15).decompress(raw[4:])   # wbits -15, offset 4
+```
+
+Inflated it opens with an `ADB.pckg` segment, the package database, whose
+records hold what a `control` file holds. A record begins with the package name,
+and the byte after it is the length of the version string that follows:
+
+```
+adguardhome \x0b 0.107.76-r1
+^^^^^^^^^^^ ^^^^^ ^^^^^^^^^
+name         len   version
+```
+
+`.github/scripts/container_metadata.py` in the source reads it this way and
+checks the installed name against the manifest, which is what keeps a renamed
+upstream package from shipping under a name nothing references. Three things
+must agree before a name is believed: a package-name character set, a length
+byte that actually matches the string after it, and a version that looks like
+one — a name read from the wrong offset is otherwise perfectly plausible.
+
+Two spellings catch a naive parser. A LuCI build carries a vendor suffix
+(`26.288.56989~75a306d`), and a name may carry capitals (`UAmask`), so a
+pattern demanding lowercase refuses a package that is spelled correctly and
+silently stops checking it.
+
+`apk adbdump` prints the same metadata when apk-tools 3 is installed; the feed's
+index answers the name alone, without the version association.
 
 ## What a green build does not prove
 

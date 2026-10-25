@@ -25,7 +25,7 @@ Real output from this source:
 
 ```
 qbittorrent-5.2.3-2-amd64-x86_64-apk.pkg.tar.gz
-tailscale-bin-1.104.1-1-amd64-x86_64-pica.pkg.tar.gz
+tailscale-bin-1.104.2-1-amd64-x86_64-pica.pkg.tar.gz
 uugamebooster@xiaodoudou-2.0-1-all-apk.pkg.tar.gz
 cattools-1.1-2-all-opkg.pkg.tar.gz
 ```

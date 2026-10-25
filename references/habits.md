@@ -61,11 +61,72 @@ and has no ipk, while `24.10.0` still carries both.
 | The dependency is… | Do |
 |---|---|
 | Called at run time, and not already on every install | Bundle it as a separate container |
-| A system package the device's own feed already carries | Declare it — bundling installs it twice |
+| A system package the device's own feed already carries | Declare it as optional — `base = x?`. Required, it moves the install to the feeds, see below |
 | A kernel module or toolchain runtime | Declare nothing. `kmod-*` is built against a kernel version and travels with the image |
 
 A missing third of that table is what makes a package look portable while
 shipping a kernel module that is wrong on every other firmware.
+
+## A required name can send the install to the feeds
+
+The default feed policy is `ask`. It counts the names this package *requires* —
+`base` and `app`, not `kmod` — against the device's feeds, and if any single one
+of them is there it installs the dependency set from the feeds instead of from
+the artifact's containers. Non-interactive does that without asking; interactive
+asks a question whose default answer is yes.
+
+A wrapped package's app name is in no feed — that is why it is wrapped — so one
+required name that a feed carries is enough to lose the containers, and the
+install then stops on a name the feed does not have. `luci-base`,
+`luci-compat`, `ipset`, `curl` are in every feed; `base = luci-base` on a
+package that wraps a third-party interface reads as a correct declaration and
+is the reason it will not install.
+
+The trailing `?` takes a name out of that count. Only required names are
+counted, so `base = luci-lua-runtime?` keeps the install on the containers while
+still naming the package: a device missing it is told which package is missing,
+and one that has it is left alone. The cost is that a non-interactive install
+does not add optional dependencies unless given `--with-optional`.
+
+Marking everything optional is not the fix either. A required name that no feed
+carries costs nothing — it is not counted — and it is what makes the precheck
+refuse a device that cannot run the package.
+
+## An arch-independent container is a part of every package
+
+`pica-pack` writes one artifact per populated `pkgs/<mgr>/<platform>/<arch>/`
+directory. That is the whole rule, and it is what a `target` of
+`{platform: all, arch: all}` in a per-architecture job used to violate: the
+fetcher wrote the container to `pkgs/opkg/all/all`, and that directory became an
+artifact of its own.
+
+For `leigod-acc` that produced two halves of one package — a 124 KB `all`
+holding the interface and its translation, and a 5 MB per-architecture set
+holding only the daemon — carrying the same name, version and manifest on both,
+so a client took whichever it saw and got half an app.
+
+The fetcher writes such a container into every matrix row now, so each
+per-architecture artifact is whole. A job whose matrix really is `all/all` — the
+theme packages, `ua-mask`, `istore` — has one row and still gets one
+destination. Placing a container under `all/all` by hand in a per-arch job is
+the same mistake one layer down.
+
+## `luci = lua1` describes the interface, it does not install anything
+
+The field records which LuCI generation the interface is written for. Nothing
+reads it to resolve a dependency, so a Lua controller needs the Lua runtime the
+same way it needs `curl`: declared.
+
+On 24.10 and later `luci-base` ships no Lua at all — the 24.10.0 package is 106
+files of JavaScript and ucode — and `luci.model.uci`, `luci.i18n`,
+`luci.dispatcher` and `luci.jsonc` live in `luci-lua-runtime`, which pulls
+`luci-base`, `luci-lib-nixio` and `luci-lib-jsonc` with it. A `luci = lua1`
+package that declares no runtime opens a menu entry that answers nothing on a
+stock device, while looking perfect on the Lua-LuCI one where it was tested.
+`luci-compat` is the older name for the legacy bundle and depends on
+`luci-lua-runtime`, so naming either brings the runtime.
+
+Declare it optional, for the reason above: it is in every feed.
 
 ## A package in this source is not a dependency
 
@@ -75,9 +136,12 @@ in this source is in none of them — pica keeps its own ledger and never reads
 another artifact's manifest — so declaring one makes the precheck refuse the
 install as `missing`.
 
-`pica` 0.4.1 names that case: `pkg-x exist in the Pica sources, but pica does
-not resolve Pica packages as dependencies`. Older clients only say `missing`,
-which reads like a typo in the manifest.
+The report is the only place it shows: the declared name is looked up in the
+backend and its feeds, comes back `missing` because a pica package is in
+neither, and the install stops on a prerequisite the device cannot satisfy —
+even though `pica -S` will install that other package happily on its own. It
+reads like a typo in the manifest, which is why it is worth knowing before
+writing one.
 
 To ship what another package provides, bundle its container in
 `pkgs/<backend>/`, or write the dependency as the system package the device's

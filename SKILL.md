@@ -1,10 +1,10 @@
 ---
 name: picapkgmaker
-description: Adds a package to a pica-pkg-repo source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers where the pica tools and the package source live on disk, how to search a feed or upstream recipe for a dependency, locating a source's dependencies and licence, choosing the backend and provider, mapping architectures, deciding which containers to bundle, the artifact naming rules, the published index layout, and the repository validator's hard rules.
+description: Adds a package to a pica package source, producing a manifest and CI job that build and verify cleanly. This skill should be used when asked to add, package, wrap or self-package an upstream project into the pica package source — including self-contained tarballs and bare binaries, and wrapping official ipk/apk releases. It covers where the pica tools and the package source live on disk, how to search a feed or upstream recipe for a dependency, locating a source's dependencies and licence, choosing the backend and provider, mapping architectures, deciding which containers to bundle, the artifact naming rules, the published index layout, and the repository validator's hard rules.
 agent_created: true
 ---
 
-# Adding a package to pica-pkg-repo
+# Adding a package to the pica package source
 
 Produce a package the validator accepts and that builds from a real upstream
 source — verified, not assumed.
@@ -25,7 +25,7 @@ target/release/pica                   the installer
 target/release/pica-pack              the packer
 ```
 
-**`pica-pkg-repo` — the source this skill adds packages to.**
+**`pica-nest` — the source this skill adds packages to.**
 
 ```
 ci/<mgr>/<id>/build.json      the job
@@ -37,6 +37,11 @@ r/repo.json                   schema 2 — what a client fetches today
 r/<mgr>/index.json            that backend's view, written from repo.json
 .github/scripts/gen_repo_index.py  writes all of them; never hand-edit r/
 ```
+
+`pica-pkg-repo` is an older clone of the same tree, sitting beside it with
+identical contents and no workflow. A job written there is never built and
+never published — confirm which clone has `.github/workflows/` before adding
+one, and put the change in that one.
 
 `<mgr>` is one of `opkg`, `apk`, `pica` and must match the job's own `mgr`.
 The directory name and the `id` field must agree.
@@ -173,10 +178,11 @@ not by which backend is in use — it is a property of the package:
 package must be self-sufficient.
 
 For two backends, keep the job's `mgr` as the input side and set `targets` to
-both; the workflow merges `build_output/*/repo.json` itself. `publish` is
-optional and inert: older jobs point `registry_db` at
-`r/<mgr>/<id>/db.json`, a tree that no longer exists, and nothing writes or
-reads it. The templates omit it rather than repeat a dead path.
+both; the workflow builds each backend under `build_output/<backend>/` and
+merges the `index.json` files it finds there. `publish` is optional and inert:
+`registry_db` points at `r/<mgr>/<id>/db.json`, a tree that no longer exists,
+and `keep_release_history` is read by nothing. The templates omit `registry_db`
+rather than repeat a dead path.
 
 ## The two provider shapes
 
@@ -207,6 +213,17 @@ a **separate container** — merged trees lose what the package manager records,
 and separate containers stay independently updatable. A dependency every other
 package already has stays declared rather than bundled, or it is duplicated
 once per package.
+
+A declared name is not free. The client's default feed policy counts the names
+this package **requires** — `base` and `app`, not `kmod` — against the device's
+feeds, and when any of them is there it installs the dependencies from the
+feeds instead of from the artifact's own containers. A wrapped package's app
+name is in no feed, that being why it is wrapped, so a single required name a
+feed *does* carry is enough to lose the containers — and the install then stops
+on a name the feed does not have, which is the package's own. Write those names
+with a trailing `?` — `base = luci-lua-runtime?` — which takes them out of the
+count and makes a missing one a warning rather than a failure.
+`references/habits.md` has the policy in full.
 
 Pin the version in `build.json` rather than following a channel: release
 assets carry a vendor build identifier that changes when they rebuild, so
@@ -241,7 +258,6 @@ own rules. `references/naming.md` has the layout and real examples.
 - `build.matrix` needs at least one entry
 - the manifest declares `targets`, never `pkgmgr` — the packer writes that
 - `targets` must include the job's own `mgr`
-- a version pinned in an asset regex does not survive the next release
 
 Run both before reporting done:
 
