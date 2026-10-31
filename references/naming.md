@@ -4,87 +4,79 @@ What `pica-pack` writes, and the three names that get confused with it.
 
 ## The filename
 
-`package_filename()` in `pica-pkg-core/src/repo.rs` builds it. Fields are
-concatenated in order; nothing else is added.
+`package_filename()` in `pica-pkg-core/src/repo.rs` builds it; the client
+rejects an index entry whose `filename` differs from it.
 
 ```
-<pkgname>-<pkgver>-<pkgrel>-<platform>-<arch>[-<suffix>].pkg.tar.gz
+<pkgname>-<pkgver>-<pkgrel>-[<platform>-]<arch>-<suffix>.pkg.tar.gz
 ```
 
 | Part | Source | Note |
 |---|---|---|
 | `pkgname` | manifest | this source's own name for the package |
-| `pkgver` | manifest | |
-| `pkgrel` | manifest | defaults to `1` if omitted |
-| `platform` | job matrix | **omitted entirely when it is `all`** |
-| `arch` | job matrix | |
-| `-<suffix>` | backend | `opkg` → `-opkg`, `apk` → `-apk`, `pica` → `-pica`; every backend has one |
-| `.pkg.tar.gz` | constant | `PKG_EXTENSION` |
+| `pkgver` | manifest, or upstream when the manifest omits it | normalised, see below |
+| `pkgrel` | manifest | `1` when omitted |
+| `platform` | `ci/config.json` `platforms[arch]` | **omitted entirely when `all`** |
+| `arch` | build.json `matrix` | |
+| `suffix` | backend | `opkg`, `apk`, `pica` |
 
 Real output from this source:
 
 ```
-qbittorrent-5.2.3-2-amd64-x86_64-apk.pkg.tar.gz
-tailscale-bin-1.104.2-1-amd64-x86_64-pica.pkg.tar.gz
-uugamebooster@xiaodoudou-2.0-1-all-apk.pkg.tar.gz
+ttyd-1.7.3-1-amd64-x86_64-opkg.pkg.tar.gz
+adguardhome-0.107.79-1-amd64-x86_64-apk.pkg.tar.gz
+adguardhome-0.107.76-1-arm64-aarch64_cortex-a53-apk.pkg.tar.gz
+tailscale-bin-1.104.2-1-mipsel-mipsel_24kc-pica.pkg.tar.gz
 cattools-1.1-2-all-opkg.pkg.tar.gz
+uugamebooster@xiaodoudou-2.0-1-all-apk.pkg.tar.gz
 ```
 
-The opkg suffix is recent. `filename_suffix()` returns `None` for an unknown
-backend because naming it the way opkg used to be named would let two backends
-write the same file; before 0.3.34 that same rule let opkg write no suffix at
-all, so `cattools-1.1-2-all.pkg.tar.gz` was correct then and is wrong now.
-Take the name from the build that produced the artifact, never from a local
-`pica-pack` binary of unknown vintage — one packer upgrade renames every opkg
-artifact in the source at once.
+The two adguardhome lines are one package: the feed rebuilt x86_64 ahead of
+aarch64, and each arch publishes the version it actually carries.
 
-When `platform` is `all` the stem drops that segment and only `arch` remains,
-so a package that is `all` for both shows just `-all`. That is not a separate
-rule — `arch` is doing the work and happens to also be `all`.
+The filename is also the GitHub release asset name, so it may only use
+`A-Z a-z 0-9 . _ @ + -`. GitHub rewrites anything else on upload — `~` becomes
+`.` — and the index would then name a file that does not exist.
 
-## Artifacts land under the backend, not beside it
+## A published name is immutable
 
-```
-out/<backend>/       --outdir default layout
-```
-
-`output_subdir()` returns the backend name verbatim. The comment on it records
-why: deciding the backend from a file extension is what let a `pica` build pick
-up `.apk` inputs, so the layout states the backend rather than implying it.
+`pica-pack` stamps `builddate` into every artifact, so rebuilding an unchanged
+package gives the same name with different bytes. `nest index` keeps the
+published entry and asset in that case and warns; overwriting it would hand
+every device holding the previous index a file whose SHA-256 does not match.
+To republish under the same version, bump `pkgrel`.
 
 ## Three names that are not the filename
-
-The manifest carries several identities and only one of them is the file's
-name. There is an assertion in the tests for exactly this confusion:
-
-```rust
-assert_eq!(pkg.app_key(), "demo",
-  "appname must come from the manifest, not pkgname");
-```
 
 | Field | What it names | Example |
 |---|---|---|
 | `pkgname` | the package in this source's index | `uugamebooster@xiaodoudou` |
-| `appname` | the command on the device | `tailscale` |
+| `appname` | what the user types; the command on the device | `tailscale` |
 | `app` | an upstream container inside the package | `luci-app-uugamebooster` |
 
-A fork uses the split deliberately: the upstream name goes in `app` so the
-package manager installs what the project publishes, while `pkgname` carries
-the maintainer so a future upstream build can sit beside it.
+`pkgname` takes `-bin` for a bare binary and `@maintainer` for a fork when
+upstream already publishes the plain name. `appname` stays the upstream name
+and never carries `@` or `luci-app-`.
 
-Renaming is cheap for the index and expensive for installed devices — the
-filename and `pkgname` change together, but an installed device keeps looking
-for the old name on upgrade.
+Renaming is cheap for the index and expensive for installed devices: a device
+that installed the old `pkgname` does not see the new one as an upgrade.
 
 ## Version fields
 
-`pkgrel` may be folded into `pkgver`:
+- `pkgrel` may be folded into `pkgver` (`1.0.0-2`): `pica-pack` splits on the
+  first `-` when `pkgrel` is absent. So `1.0.0-rc1` without `pkgrel` parses as
+  revision `rc1`; `nest validate` refuses a `-` without an explicit `pkgrel`.
+- `pkgver` never contains `~`.
+- A version taken from upstream is normalised once, in `ci/nest/util.py`
+  `publishable_version()`:
 
-```ini
-pkgver = 1.0.0-2     # revision 2
-pkgver = 1.0.0       # revision 1, pkgrel omitted
-```
+| Upstream | Published | Why |
+|---|---|---|
+| `0.107.76-r1` (feed) | `0.107.76` | the feed revision is not this source's pkgrel |
+| `26.236.50544~cb5d434` | `26.236.50544.cb5d434` | GitHub rewrites `~` |
+| `1:2.3-r1` | `2.3` | epoch dropped |
+| `v3.1.1` (tag) | `3.1.1` | |
+| `3.9.7-beta2` (tag) | `3.9.7_beta2` | a `-` would split into pkgrel |
 
-`resolve_version()` splits on the first `-`. A `pkgver` that carries a hyphen
-for another reason — a vendor build like `26.236.50544~cb5d434` is safe, but
-`1.0.0-rc1` would parse as revision `rc1`.
+Versions are compared by value, not spelling, so `1.8-9`, `1.8.9` and
+`v1.8.9` are one version to every check in the tool.
